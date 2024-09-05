@@ -1,0 +1,6 @@
+transformers
+torch
+torchvision
+accelerate
+python-dotenv
+openai
