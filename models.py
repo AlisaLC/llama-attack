@@ -19,7 +19,26 @@ def get_llama(model_path=os.getenv('LLAMA_PATH')):
 
 def get_qwen2_vl(model_path=os.getenv('QWEN2_VL_PATH')):
     model = Qwen2VLForConditionalGeneration.from_pretrained(
-        "Qwen/Qwen2-VL-7B-Instruct", torch_dtype="auto", device_map="auto"
+        model_path, torch_dtype="auto", device_map="auto"
     )
-    processor = AutoProcessor.from_pretrained("Qwen/Qwen2-VL-7B-Instruct")
+    processor = AutoProcessor.from_pretrained(model_path)
     return model, processor
+
+def generate_qwen2_vl(model, processor, messages, max_tokens=128):
+    text_prompt = processor.apply_chat_template(
+        messages, add_generation_prompt=True)
+
+    inputs = processor(
+        text=[text_prompt], padding=True, return_tensors="pt"
+    )
+    inputs = inputs.to(model.device)
+
+    output_ids = model.generate(**inputs, max_new_tokens=max_tokens)
+    generated_ids = [
+        output_ids[len(input_ids):]
+        for input_ids, output_ids in zip(inputs.input_ids, output_ids)
+    ]
+    output_text = processor.batch_decode(
+        generated_ids, skip_special_tokens=True, clean_up_tokenization_spaces=True
+    )
+    return output_text[0]
