@@ -4,4 +4,4 @@ torchvision
 accelerate
 python-dotenv
 openai
-nanogcg
+streamlit

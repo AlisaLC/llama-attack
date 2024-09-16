@@ -1,19 +1,28 @@
-import nanogcg
+from .nanogcg import GCGConfig, run
+from models import get_llama
 
-from nanogcg import GCGConfig
 
+def GCG(
+        message,
+        target,
+        num_steps=500,
+        search_width=512,
+        batch_size=256,
+        topk=256,
+    ):
 
-def GCG(model, tokenizer, message, target):
+    model, tokenizer = get_llama()
+
     messages = [
         {"role": "user", "content": message + "{optim_str}"}
     ]
 
     config = GCGConfig(
-        num_steps=500,
-        search_width=512,
-        batch_size=256,
-        topk=256,
+        num_steps=num_steps,
+        search_width=search_width,
+        batch_size=batch_size,
+        topk=topk,
         verbosity="WARNING"
     )
 
-    return nanogcg.run(model, tokenizer, messages, target, config)
+    return run(model, tokenizer, messages, target, config)
