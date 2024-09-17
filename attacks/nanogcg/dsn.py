@@ -11,7 +11,7 @@ import transformers
 from torch import Tensor
 from transformers import set_seed
 
-from .utils import INIT_CHARS, find_executable_batch_size, get_nonascii_toks, mellowmax
+from .utils import INIT_CHARS, find_executable_batch_size, get_nonascii_toks
 
 logger = logging.getLogger("nanogcg")
 if not logger.hasHandlers():
@@ -25,7 +25,8 @@ if not logger.hasHandlers():
     logger.setLevel(logging.INFO)
 
 @dataclass
-class GCGConfig:
+class DSNConfig:
+    alpha: float = 10.0
     num_steps: int = 250
     optim_str_init: Union[str, List[str]] = "x x x x x x x x x x x x x x x x x x x x"
     search_width: int = 512
@@ -33,8 +34,6 @@ class GCGConfig:
     topk: int = 256
     n_replace: int = 1
     buffer_size: int = 0
-    use_mellowmax: bool = False
-    mellowmax_alpha: float = 1.0
     early_stop: bool = False
     use_prefix_cache: bool = True
     allow_non_ascii: bool = False
@@ -156,12 +155,12 @@ def filter_ids(ids: Tensor, tokenizer: transformers.PreTrainedTokenizer):
     
     return torch.stack(filtered_ids)
 
-class GCG:
+class DSN:
     def __init__(
         self, 
         model: transformers.PreTrainedModel,
         tokenizer: transformers.PreTrainedTokenizer,
-        config: GCGConfig,
+        config: DSNConfig,
     ):
         self.model = model
         self.tokenizer = tokenizer
@@ -183,6 +182,7 @@ class GCG:
         self,
         messages: Union[str, List[dict]],
         target: str,
+        negative_target: str,
     ) -> Generator[tuple[str, int], None, None]:
         model = self.model
         tokenizer = self.tokenizer
@@ -208,15 +208,17 @@ class GCG:
         before_str, after_str = template.split("{optim_str}")
 
         target = " " + target if config.add_space_before_target else target
+        negative_target = " " + negative_target if config.add_space_before_target else negative_target
 
         # Tokenize everything that doesn't get optimized
         before_ids = tokenizer([before_str], padding=False, return_tensors="pt")["input_ids"].to(model.device).to(torch.int64)
         after_ids = tokenizer([after_str], add_special_tokens=False, return_tensors="pt")["input_ids"].to(model.device).to(torch.int64)
         target_ids = tokenizer([target], add_special_tokens=False, return_tensors="pt")["input_ids"].to(model.device).to(torch.int64)
+        negative_target_ids = tokenizer([negative_target], add_special_tokens=False, return_tensors="pt")["input_ids"].to(model.device).to(torch.int64)
 
         # Embed everything that doesn't get optimized
         embedding_layer = self.embedding_layer
-        before_embeds, after_embeds, target_embeds = [embedding_layer(ids) for ids in (before_ids, after_ids, target_ids)]
+        before_embeds, after_embeds, target_embeds, negative_target_embeds = [embedding_layer(ids) for ids in (before_ids, after_ids, target_ids, negative_target_ids)]
 
         # Compute the KV Cache for tokens that appear before the optimized tokens
         if config.use_prefix_cache:
@@ -225,9 +227,11 @@ class GCG:
                 self.prefix_cache = output.past_key_values
         
         self.target_ids = target_ids
+        self.negative_target_ids = negative_target_ids
         self.before_embeds = before_embeds
         self.after_embeds = after_embeds
         self.target_embeds = target_embeds
+        self.negative_target_embeds = negative_target_embeds
 
         # Initialize the attack buffer
         buffer = self.init_buffer()
@@ -265,6 +269,11 @@ class GCG:
                         after_embeds.repeat(new_search_width, 1, 1),
                         target_embeds.repeat(new_search_width, 1, 1),
                     ], dim=1)
+                    negative_input_embeds = torch.cat([
+                        embedding_layer(sampled_ids),
+                        after_embeds.repeat(new_search_width, 1, 1),
+                        negative_target_embeds.repeat(new_search_width, 1, 1),
+                    ], dim=1)
                 else:
                     input_embeds = torch.cat([
                         before_embeds.repeat(new_search_width, 1, 1),
@@ -272,7 +281,13 @@ class GCG:
                         after_embeds.repeat(new_search_width, 1, 1),
                         target_embeds.repeat(new_search_width, 1, 1),
                     ], dim=1)
-                loss = find_executable_batch_size(self.compute_candidates_loss, batch_size)(input_embeds)
+                    negative_input_embeds = torch.cat([
+                        before_embeds.repeat(new_search_width, 1, 1),
+                        embedding_layer(sampled_ids),
+                        after_embeds.repeat(new_search_width, 1, 1),
+                        negative_target_embeds.repeat(new_search_width, 1, 1),
+                    ], dim=1)
+                loss = find_executable_batch_size(self.compute_candidates_loss, batch_size)(input_embeds, negative_input_embeds, self.target_ids, self.negative_target_ids)
 
                 current_loss = loss.min().item()
                 optim_ids = sampled_ids[loss.argmin()].unsqueeze(0)
@@ -331,6 +346,11 @@ class GCG:
                 self.after_embeds.repeat(true_buffer_size, 1, 1),
                 self.target_embeds.repeat(true_buffer_size, 1, 1),
             ], dim=1)
+            init_negative_buffer_embeds = torch.cat([
+                self.embedding_layer(init_buffer_ids),
+                self.after_embeds.repeat(true_buffer_size, 1, 1),
+                self.negative_target_embeds.repeat(true_buffer_size, 1, 1),
+            ], dim=1)
         else:
             init_buffer_embeds = torch.cat([
                 self.before_embeds.repeat(true_buffer_size, 1, 1),
@@ -338,8 +358,14 @@ class GCG:
                 self.after_embeds.repeat(true_buffer_size, 1, 1),
                 self.target_embeds.repeat(true_buffer_size, 1, 1),
             ], dim=1)
+            init_negative_buffer_embeds = torch.cat([
+                self.before_embeds.repeat(true_buffer_size, 1, 1),
+                self.embedding_layer(init_buffer_ids),
+                self.after_embeds.repeat(true_buffer_size, 1, 1),
+                self.negative_target_embeds.repeat(true_buffer_size, 1, 1),
+            ], dim=1)
 
-        init_buffer_losses = find_executable_batch_size(self.compute_candidates_loss, true_buffer_size)(init_buffer_embeds)
+        init_buffer_losses = find_executable_batch_size(self.compute_candidates_loss, true_buffer_size)(init_buffer_embeds, init_negative_buffer_embeds, self.target_ids, self.negative_target_ids)
 
         # Populate the buffer
         for i in range(true_buffer_size):
@@ -384,11 +410,26 @@ class GCG:
         shift_logits = logits[..., shift-1:-1, :].contiguous() # (1, num_target_ids, vocab_size)
         shift_labels = self.target_ids
 
-        if self.config.use_mellowmax:
-            label_logits = torch.gather(shift_logits, -1, shift_labels.unsqueeze(-1)).squeeze(-1)
-            loss = mellowmax(-label_logits, alpha=self.config.mellowmax_alpha, dim=-1)
+        loss = torch.nn.functional.cross_entropy(shift_logits.view(-1, shift_logits.size(-1)), shift_labels.view(-1))
+
+        if self.prefix_cache:
+            input_embeds = torch.cat([optim_embeds, self.after_embeds, self.negative_target_embeds], dim=1)
+            output = model(inputs_embeds=input_embeds, past_key_values=self.prefix_cache)
         else:
-            loss = torch.nn.functional.cross_entropy(shift_logits.view(-1, shift_logits.size(-1)), shift_labels.view(-1))
+            input_embeds = torch.cat([self.before_embeds, optim_embeds, self.after_embeds, self.negative_target_embeds], dim=1)
+            output = model(inputs_embeds=input_embeds)
+
+        logits = output.logits
+
+        # Shift logits so token n-1 predicts token n
+        shift = input_embeds.shape[1] - self.negative_target_ids.shape[1]
+        shift_logits = logits[..., shift-1:-1, :].contiguous() # (1, num_target_ids, vocab_size)
+        shift_labels = self.negative_target_ids
+
+        loss = loss + self.config.alpha * torch.nn.functional.nll_loss(
+            torch.log(1 - torch.nn.functional.softmax(shift_logits.view(-1, shift_logits.size(-1)), dim=1)),
+            shift_labels.view(-1),
+        )
 
         optim_ids_onehot_grad = torch.autograd.grad(outputs=[loss], inputs=[optim_ids_onehot])[0]
 
@@ -397,7 +438,10 @@ class GCG:
     def compute_candidates_loss(
         self,
         search_batch_size: int, 
-        input_embeds: Tensor, 
+        input_embeds: Tensor,
+        negative_input_embeds: Tensor,
+        target_ids: Tensor,
+        negative_target_ids: Tensor,
     ) -> Tensor:
         """Computes the GCG loss on all candidate token id sequences.
 
@@ -413,6 +457,7 @@ class GCG:
         for i in range(0, input_embeds.shape[0], search_batch_size):
             with torch.no_grad():
                 input_embeds_batch = input_embeds[i:i+search_batch_size]
+                negative_input_embeds_batch = negative_input_embeds[i:i+search_batch_size]
                 current_batch_size = input_embeds_batch.shape[0]
 
                 if self.prefix_cache:
@@ -420,22 +465,29 @@ class GCG:
                         prefix_cache_batch = [[x.expand(current_batch_size, -1, -1, -1) for x in self.prefix_cache[i]] for i in range(len(self.prefix_cache))]
 
                     outputs = self.model(inputs_embeds=input_embeds_batch, past_key_values=prefix_cache_batch)
+                    negative_outputs = self.model(inputs_embeds=negative_input_embeds_batch, past_key_values=prefix_cache_batch)
                 else:
                     outputs = self.model(inputs_embeds=input_embeds_batch)
+                    negative_outputs = self.model(inputs_embeds=negative_input_embeds_batch)
 
                 logits = outputs.logits
+                negative_logits = negative_outputs.logits
 
-                tmp = input_embeds.shape[1] - self.target_ids.shape[1]
+                tmp = input_embeds.shape[1] - target_ids.shape[1]
                 shift_logits = logits[..., tmp-1:-1, :].contiguous()
-                shift_labels = self.target_ids.repeat(current_batch_size, 1)
-                
-                if self.config.use_mellowmax:
-                    label_logits = torch.gather(shift_logits, -1, shift_labels.unsqueeze(-1)).squeeze(-1)
-                    loss = mellowmax(-label_logits, alpha=self.config.mellowmax_alpha, dim=-1)
-                else:
-                    loss = torch.nn.functional.cross_entropy(shift_logits.view(-1, shift_logits.size(-1)), shift_labels.view(-1), reduction="none")
+                shift_labels = target_ids.repeat(current_batch_size, 1)
 
-                loss = loss.view(current_batch_size, -1).mean(dim=-1)
+                tmp = negative_input_embeds.shape[1] - negative_target_ids.shape[1]
+                negative_shift_logits = negative_logits[..., tmp-1:-1, :].contiguous()
+                negative_shift_labels = negative_target_ids.repeat(current_batch_size, 1)
+                
+                loss = torch.nn.functional.cross_entropy(shift_logits.view(-1, shift_logits.size(-1)), shift_labels.view(-1), reduction="none")
+                loss = loss.view(current_batch_size, -1).mean(dim=-1) + self.config.alpha * torch.nn.functional.nll_loss(
+                    torch.log(1 - torch.nn.functional.softmax(negative_shift_logits.view(-1, negative_shift_logits.size(-1)), dim=1)),
+                    negative_shift_labels.view(-1),
+                    reduction="none",
+                ).view(current_batch_size, -1).mean(dim=-1)
+
                 all_loss.append(loss)
 
                 if self.config.early_stop:
@@ -454,7 +506,8 @@ def run(
     tokenizer: transformers.PreTrainedTokenizer,
     messages: Union[str, List[dict]],
     target: str,
-    config: Optional[GCGConfig] = None, 
+    negative_target: str,
+    config: Optional[DSN] = None, 
 ) -> Generator[tuple[str, int], None, None]:
     """Generates a single optimized string using GCG. 
 
@@ -469,10 +522,10 @@ def run(
         Optimized string and loss
     """
     if config is None:
-        config = GCGConfig()
+        config = DSNConfig()
     
     logger.setLevel(getattr(logging, config.verbosity))
     
-    gcg = GCG(model, tokenizer, config)
-    return gcg.run(messages, target)
+    dsn = DSN(model, tokenizer, config)
+    return dsn.run(messages, target, negative_target)
     

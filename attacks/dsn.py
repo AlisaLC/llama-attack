@@ -1,18 +1,21 @@
-from .nanogcg import GCGConfig, run_gcg
+from .nanogcg import DSNConfig, run_dsn
 from models import get_llama, get_qwen2_vl
 
 
-def GCG(
+def DSN(
     model,
     tokenizer,
     messages,
     target,
+    negative_target,
+    alpha=10.0,
     num_steps=500,
     search_width=512,
     batch_size=256,
     topk=256,
 ):
-    config = GCGConfig(
+    config = DSNConfig(
+        alpha=alpha,
         num_steps=num_steps,
         search_width=search_width,
         batch_size=batch_size,
@@ -20,14 +23,16 @@ def GCG(
         verbosity="WARNING"
     )
 
-    return run_gcg(model, tokenizer, messages, target, config)
+    return run_dsn(model, tokenizer, messages, target, negative_target, config)
 
 
-def GCG_llama(
+def DSN_llama(
     model,
     tokenizer,
     message,
     target,
+    negative_target,
+    alpha=10.0,
     num_steps=500,
     search_width=512,
     batch_size=256,
@@ -37,14 +42,16 @@ def GCG_llama(
         {"role": "user", "content": message + "{optim_str}"}
     ]
 
-    return GCG(model, tokenizer, messages, target, num_steps, search_width, batch_size, topk)
+    return DSN(model, tokenizer, messages, target, negative_target, alpha, num_steps, search_width, batch_size, topk)
 
 
-def GCG_qwen2_vl(
+def DSN_qwen2_vl(
     model,
     processor,
     message,
     target,
+    negative_target,
+    alpha=10.0,
     num_steps=500,
     search_width=512,
     batch_size=128,
@@ -62,4 +69,4 @@ def GCG_qwen2_vl(
         },
     ]
 
-    return GCG(model, processor.tokenizer, messages, target, num_steps, search_width, batch_size, topk)
+    return DSN(model, processor.tokenizer, messages, target, negative_target, alpha, num_steps, search_width, batch_size, topk)

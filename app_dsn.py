@@ -1,12 +1,12 @@
 import streamlit as st
 import matplotlib.pyplot as plt
 from dotenv import load_dotenv
-from attacks.gcg import GCG_qwen2_vl, GCG_llama
+from attacks.dsn import DSN_qwen2_vl, DSN_llama
 from models import get_llama, get_qwen2_vl, generate_qwen2_vl, generate_llama
 
 load_dotenv()
 
-st.title("GCG Attack")
+st.title("DSN Attack")
 
 with st.sidebar:
     st.header("Settings")
@@ -17,6 +17,12 @@ with st.sidebar:
     )
 
     expected = st.text_area("Expected")
+
+    negative = st.text_area("Refusal")
+
+    alpha = st.slider(
+        "Alpha", min_value=0.0, max_value=100.0, value=10.0, step=0.1
+    )
 
     num_steps = st.slider(
         "Number of Steps", min_value=100, max_value=2000, value=500, step=50
@@ -54,17 +60,19 @@ if prompt := st.chat_input("Query"):
 
     if model_name == "Llama 3.1":
         model, tokenizer = get_llama()
-        gcg_func = GCG_llama
+        dsn_func = DSN_llama
     elif model_name == "Qwen2-VL":
         model, tokenizer = get_qwen2_vl()
-        gcg_func = GCG_qwen2_vl
+        dsn_func = DSN_qwen2_vl
 
     for i, (suffix, loss) in enumerate(
-        gcg_func(
+        dsn_func(
             model,
             tokenizer,
             prompt,
             expected,
+            negative,
+            alpha=alpha,
             num_steps=num_steps,
             search_width=search_width,
             batch_size=batch_size,
