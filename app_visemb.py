@@ -19,8 +19,10 @@ with st.sidebar:
 
     query = st.text_area("Query", value="describe the image.")
 
-    uploaded_safe_image = st.file_uploader("Upload Safe Image", type=["jpg", "jpeg", "png"])
-    uploaded_unsafe_image = st.file_uploader("Upload Unsafe Image", type=["jpg", "jpeg", "png"])
+    st.write("both images must have the same size")
+
+    uploaded_safe_image = st.file_uploader("Upload Safe Image", type=["jpg", "jpeg", "png"], help='width and height must be divisible by 28')
+    uploaded_unsafe_image = st.file_uploader("Upload Unsafe Image", type=["jpg", "jpeg", "png"], help='width and height must be divisible by 28')
 
     learning_rate = st.slider(
         "Learning Rate", min_value=0.001, max_value=0.1, value=0.001, step=0.001, format='%g',
