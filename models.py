@@ -67,3 +67,22 @@ def generate_qwen2_vl(model, processor, messages, max_tokens=128):
         generated_ids, skip_special_tokens=True, clean_up_tokenization_spaces=True
     )
     return output_text[0]
+
+def generate_qwen2_vl_with_image(model, processor, messages, images, max_tokens=128):
+    text_prompt = processor.apply_chat_template(
+        messages, add_generation_prompt=True)
+
+    inputs = processor(
+        text=[text_prompt], images=images, padding=True, return_tensors="pt"
+    )
+    inputs = inputs.to(model.device)
+
+    output_ids = model.generate(**inputs, max_new_tokens=max_tokens)
+    generated_ids = [
+        output_ids[len(input_ids):]
+        for input_ids, output_ids in zip(inputs.input_ids, output_ids)
+    ]
+    output_text = processor.batch_decode(
+        generated_ids, skip_special_tokens=True, clean_up_tokenization_spaces=True
+    )
+    return output_text[0]
