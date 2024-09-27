@@ -26,7 +26,6 @@ if not logger.hasHandlers():
 
 @dataclass
 class GCGConfig:
-    num_steps: int = 250
     optim_str_init: Union[str, List[str]] = "x x x x x x x x x x x x x x x x x x x x"
     search_width: int = 512
     batch_size: int = None
@@ -236,7 +235,7 @@ class GCG:
         min_loss = float('inf')
         optim_string = ''
         
-        for _ in tqdm(range(config.num_steps)):
+        while True:
             # Compute the token gradient
             optim_ids_onehot_grad = self.compute_token_gradient(optim_ids) 
 

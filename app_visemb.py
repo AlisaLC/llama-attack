@@ -1,8 +1,8 @@
 import streamlit as st
 import matplotlib.pyplot as plt
 from dotenv import load_dotenv
-from attacks.visemb import similar_visual_embedding_attack
-from models import get_qwen2_vl, generate_qwen2_vl_with_image
+from attacks.visemb import similar_visual_embedding_attack_qwen2_vl, similar_visual_embedding_attack_llama
+from models import get_qwen2_vl, generate_qwen2_vl_with_image, get_llama, generate_llama_with_image
 from PIL import Image
 
 load_dotenv()
@@ -14,7 +14,7 @@ with st.sidebar:
 
     model_name = st.selectbox(
         "Model",
-        ("Qwen2-VL",),
+        ("Llama 3.2", "Qwen2-VL"),
     )
 
     query = st.text_area("Query", value="describe the image.")
@@ -42,8 +42,14 @@ if uploaded_safe_image and uploaded_unsafe_image:
     with col2:
         st.image(img_unsafe, caption="Unsafe Image", use_column_width=True)
 
-    if model_name == "Qwen2-VL":
+    if model_name == "Llama 3.2":
+        model, processor = get_llama()
+        attack_func = similar_visual_embedding_attack_llama
+        gen_func = generate_llama_with_image
+    elif model_name == "Qwen2-VL":
         model, processor = get_qwen2_vl()
+        attack_func = similar_visual_embedding_attack_qwen2_vl
+        gen_func = generate_qwen2_vl_with_image
 
     safe_image_placeholder = st.empty()
 
@@ -51,7 +57,7 @@ if uploaded_safe_image and uploaded_unsafe_image:
 
     loss_values = []
 
-    attack_generator = similar_visual_embedding_attack(model, processor, img_safe, img_unsafe, num_steps=num_steps, lr=learning_rate)
+    attack_generator = attack_func(model, processor, img_safe, img_unsafe, num_steps=num_steps, lr=learning_rate)
 
     for step, (updated_img_safe, loss) in enumerate(attack_generator):
         safe_image_placeholder.image(updated_img_safe, caption=f"Safe Image at Step {step + 1}", use_column_width=True)
@@ -76,7 +82,7 @@ if uploaded_safe_image and uploaded_unsafe_image:
 
     st.chat_message("user").write(query)
     st.chat_message("assistant").markdown(
-        generate_qwen2_vl_with_image(
+        gen_func(
             model,
             processor,
             [

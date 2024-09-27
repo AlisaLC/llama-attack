@@ -13,7 +13,7 @@ with st.sidebar:
 
     model_name = st.selectbox(
         "Model",
-        ("Llama 3.1", "Qwen2-VL"),
+        ("Llama 3.2", "Qwen2-VL"),
     )
 
     expected = st.text_area("Expected")
@@ -58,7 +58,7 @@ if prompt := st.chat_input("Query"):
     ax.set_xlabel("Iterations")
     ax.set_ylabel("Loss")
 
-    if model_name == "Llama 3.1":
+    if model_name == "Llama 3.2":
         model, tokenizer = get_llama()
         dsn_func = DSN_llama
     elif model_name == "Qwen2-VL":
@@ -84,7 +84,7 @@ if prompt := st.chat_input("Query"):
         chat = [{"role": "user", "content": prompt + suffix}]
         user_message.chat_message("user").write(prompt + suffix)
 
-        if model_name == "Llama 3.1":
+        if model_name == "Llama 3.2":
             output = generate_llama(model, tokenizer, chat)
             response = ai_message.chat_message("assistant").markdown(output)
         elif model_name == "Qwen2-VL":
@@ -107,7 +107,7 @@ if prompt := st.chat_input("Query"):
     chat = [{"role": "user", "content": prompt + suffix}]
     user_message.chat_message("user").markdown(prompt + suffix)
 
-    if model_name == "Llama 3.1":
+    if model_name == "Llama 3.2":
         output = generate_llama(model, tokenizer, chat, max_tokens=1024)
         response = ai_message.chat_message("assistant").markdown(output)
     elif model_name == "Qwen2-VL":

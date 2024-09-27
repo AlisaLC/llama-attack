@@ -7,13 +7,11 @@ def GCG(
     tokenizer,
     messages,
     target,
-    num_steps=500,
     search_width=512,
     batch_size=256,
     topk=256,
 ):
     config = GCGConfig(
-        num_steps=num_steps,
         search_width=search_width,
         batch_size=batch_size,
         topk=topk,
@@ -25,19 +23,26 @@ def GCG(
 
 def GCG_llama(
     model,
-    tokenizer,
+    processor,
     message,
     target,
-    num_steps=500,
     search_width=512,
     batch_size=256,
     topk=256,
 ):
     messages = [
-        {"role": "user", "content": message + "{optim_str}"}
+        {
+            "role": "user",
+            "content": [
+                {
+                    "type": "text",
+                    "text": message + "{optim_str}",
+                }
+            ],
+        },
     ]
 
-    return GCG(model, tokenizer, messages, target, num_steps, search_width, batch_size, topk)
+    return GCG(model, processor.tokenizer, messages, target, search_width, batch_size, topk)
 
 
 def GCG_qwen2_vl(
@@ -45,7 +50,6 @@ def GCG_qwen2_vl(
     processor,
     message,
     target,
-    num_steps=500,
     search_width=512,
     batch_size=128,
     topk=256,
@@ -62,4 +66,4 @@ def GCG_qwen2_vl(
         },
     ]
 
-    return GCG(model, processor.tokenizer, messages, target, num_steps, search_width, batch_size, topk)
+    return GCG(model, processor.tokenizer, messages, target, search_width, batch_size, topk)

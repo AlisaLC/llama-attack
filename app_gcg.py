@@ -13,7 +13,7 @@ with st.sidebar:
 
     model_name = st.selectbox(
         "Model",
-        ("Llama 3.1", "Qwen2-VL"),
+        ("Llama 3.2", "Qwen2-VL"),
     )
 
     expected = st.text_area("Expected")
@@ -52,20 +52,19 @@ if prompt := st.chat_input("Query"):
     ax.set_xlabel("Iterations")
     ax.set_ylabel("Loss")
 
-    if model_name == "Llama 3.1":
-        model, tokenizer = get_llama()
+    if model_name == "Llama 3.2":
+        model, processor = get_llama()
         gcg_func = GCG_llama
     elif model_name == "Qwen2-VL":
-        model, tokenizer = get_qwen2_vl()
+        model, processor = get_qwen2_vl()
         gcg_func = GCG_qwen2_vl
 
     for i, (suffix, loss) in enumerate(
         gcg_func(
             model,
-            tokenizer,
+            processor,
             prompt,
             expected,
-            num_steps=num_steps,
             search_width=search_width,
             batch_size=batch_size,
             topk=topk,
@@ -76,11 +75,11 @@ if prompt := st.chat_input("Query"):
         chat = [{"role": "user", "content": prompt + suffix}]
         user_message.chat_message("user").write(prompt + suffix)
 
-        if model_name == "Llama 3.1":
-            output = generate_llama(model, tokenizer, chat)
+        if model_name == "Llama 3.2":
+            output = generate_llama(model, processor, chat)
             response = ai_message.chat_message("assistant").markdown(output)
         elif model_name == "Qwen2-VL":
-            output = generate_qwen2_vl(model, tokenizer, chat)
+            output = generate_qwen2_vl(model, processor, chat)
             response = ai_message.chat_message("assistant").markdown(output)
 
         loss_values.append(loss)
@@ -93,15 +92,18 @@ if prompt := st.chat_input("Query"):
 
         with col2:
             loss_plot.pyplot(fig)
+        
+        if i == num_steps - 1:
+            break
 
     user_message.empty()
     ai_message.empty()
     chat = [{"role": "user", "content": prompt + suffix}]
     user_message.chat_message("user").markdown(prompt + suffix)
 
-    if model_name == "Llama 3.1":
-        output = generate_llama(model, tokenizer, chat, max_tokens=1024)
+    if model_name == "Llama 3.2":
+        output = generate_llama(model, processor, chat, max_tokens=1024)
         response = ai_message.chat_message("assistant").markdown(output)
     elif model_name == "Qwen2-VL":
-        output = generate_qwen2_vl(model, tokenizer, chat, max_tokens=1024)
+        output = generate_qwen2_vl(model, processor, chat, max_tokens=1024)
         response = ai_message.chat_message("assistant").markdown(output)
