@@ -21,7 +21,7 @@ with st.sidebar:
     negative = st.text_area("Refusal")
 
     alpha = st.slider(
-        "Alpha", min_value=0.0, max_value=100.0, value=10.0, step=0.1
+        "Alpha (10^x)", min_value=-10.0, max_value=10.0, value=3.0, step=0.1
     )
 
     num_steps = st.slider(
@@ -72,7 +72,7 @@ if prompt := st.chat_input("Query"):
             prompt,
             expected,
             negative,
-            alpha=alpha,
+            alpha=10 ** alpha,
             num_steps=num_steps,
             search_width=search_width,
             batch_size=batch_size,
